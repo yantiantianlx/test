@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow.python.ops import control_flow_ops
 from tensorflow.examples.tutorials.mnist import input_data
 
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
@@ -143,7 +142,7 @@ class test_net:
 net = test_net()
 tf_sum_writer = tf.summary.FileWriter('logs/')
 
-tf_config = tf.ConfigProto()
+tf_config = tf.ConfigProto()#log_device_placement=True)
 tf_config.gpu_options.allow_growth = True
 with tf.Session(config = tf_config) as sess:
     tf_sum_writer.add_graph(sess.graph)
@@ -163,10 +162,17 @@ with tf.Session(config = tf_config) as sess:
         if train_step % 1000 ==0 :
             test_input = mnist.test.images[:1000]
             test_target = mnist.test.labels[:1000]
+            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            run_metadata = tf.RunMetadata()
             _,_,_,net_test_sum = sess.run([net.accuracy_without_bn, net.accuracy_bn_before_relu, net.accuracy_bn_after_relu, net.merge_test],
-                 feed_dict={net.input: test_input, net.label: test_target, net.keep_prob: 1, net.is_train:False})
+                 feed_dict={net.input: test_input, net.label: test_target, net.keep_prob: 1, net.is_train:False},
+                                    options=run_options, run_metadata=run_metadata)
+            tf_sum_writer.add_run_metadata(run_metadata, 'step%03d' %  train_step)
             tf_sum_writer.add_summary(net_test_sum, test_step)
             test_step += 1
+    tf_sum_writer.close()
+
+
 
 
 
