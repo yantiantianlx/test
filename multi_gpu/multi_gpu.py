@@ -2,16 +2,18 @@ import os
 import time
 from datetime import datetime
 
+import numpy as np
 import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
 
 from multi_gpu import test
 
 # 定义训练神经网络时需要用到的参数。
-BATCH_SIZE = 100
+BATCH_SIZE = 10
 LEARNING_RATE_BASE = 0.001
 LEARNING_RATE_DECAY = 0.99
 REGULARAZTION_RATE = 0.0001
-TRAINING_STEPS = 1000
+TRAINING_STEPS = 10000
 MOVING_AVERAGE_DECAY = 0.99
 N_GPU = 4
 
@@ -20,6 +22,36 @@ MODEL_SAVE_PATH = "logs_and_models/"
 MODEL_NAME = "model.ckpt"
 DATA_PATH = "output.tfrecords"
 
+
+def save_records():
+    # 定义函数转化变量类型。
+    def _int64_feature(value):
+        return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+    def _bytes_feature(value):
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    # 读取mnist数据。
+    mnist = input_data.read_data_sets("MNIST_data",dtype=tf.uint8, one_hot=True)
+    images = mnist.train.images
+    labels = mnist.train.labels
+    pixels = images.shape[1]
+    num_examples = mnist.train.num_examples
+
+    # 输出TFRecord文件的地址。
+    filename = "output.tfrecords"
+    writer = tf.python_io.TFRecordWriter(filename)
+    for index in range(num_examples):
+        image_raw = images[index].tostring()
+
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'pixels': _int64_feature(pixels),
+            'label': _int64_feature(np.argmax(labels[index])),
+            'image_raw': _bytes_feature(image_raw)
+        }))
+        writer.write(example.SerializeToString())
+    writer.close()
+    print('ok')
 
 # 定义输入队列得到训练数据，具体细节可以参考第七章。
 def get_input():
@@ -72,7 +104,7 @@ def average_gradients(tower_grads):
         for g, _ in grad_and_vars:
             expanded_g = tf.expand_dims(g, 0)
             grads.append(expanded_g)
-        grad = tf.concat(0, grads)
+        grad = tf.concat(grads, axis=0 )
         grad = tf.reduce_mean(grad, 0)
 
         v = grad_and_vars[0][1]
@@ -101,14 +133,15 @@ def main(argv=None):
         tower_grads = []
 
         # 将神经网络的优化过程跑在不同的GPU上。
-        for i in range(N_GPU):
-            # 将优化过程指定在一个GPU上。
-            with tf.device('/gpu:%d' % i):
-                with tf.name_scope('GPU_%d' % i) as scope:
-                    cur_loss = get_loss(x, y_, regularizer, scope)
-                    tf.get_variable_scope().reuse_variables()
-                    grads = opt.compute_gradients(cur_loss)
-                    tower_grads.append(grads)
+        with tf.variable_scope(tf.get_variable_scope()):
+            for i in range(N_GPU):
+                # 将优化过程指定在一个GPU上。
+                with tf.device('/gpu:%d' % i):
+                    with tf.name_scope('GPU_%d' % i) as scope:
+                        cur_loss = get_loss(x, y_, regularizer, scope)
+                        tf.get_variable_scope().reuse_variables()
+                        grads = opt.compute_gradients(cur_loss)
+                        tower_grads.append(grads)
 
         # 计算变量的平均梯度。
         grads = average_gradients(tower_grads)
